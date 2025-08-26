@@ -34,6 +34,7 @@ export function App() {
 	const [response, setResponse] = useState<AiResponse | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [auto, setAuto] = useState(true);
 	const svgRef = useRef<SVGSVGElement | null>(null);
 
 	const onChange = useCallback((value?: string) => {
@@ -53,26 +54,62 @@ export function App() {
 		}
 	}, [code]);
 
+	// Run once on mount
+	React.useEffect(() => {
+		onAnalyze();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
+
+	// Debounced auto-analyze on code changes
+	React.useEffect(() => {
+		if (!auto) return;
+		const id = setTimeout(() => { onAnalyze(); }, 800);
+		return () => clearTimeout(id);
+	}, [auto, code, onAnalyze]);
+
 	const stdoutLines = useMemo(() => response?.finalState?.stdout ?? [], [response]);
+	const variables = useMemo(() => Object.entries((response?.finalState?.variables ?? {}) as Record<string, unknown>) as Array<[string, unknown]>, [response]);
 
 	React.useEffect(() => {
 		const svg = d3.select(svgRef.current);
 		svg.selectAll('*').remove();
 		const g = svg.append('g').attr('transform', 'translate(16,24)');
-		g.append('text').text('Stdout:').attr('font-size', 16).attr('fill', 'white');
-		g.selectAll('t').data(stdoutLines as unknown[]).enter().append('text')
+
+		// Variables section
+		g.append('text').text('Variables:').attr('font-size', 16).attr('fill', 'white');
+		const varGroup = g.append('g').attr('transform', 'translate(0,20)');
+		varGroup.selectAll('text')
+			.data(variables)
+			.enter()
+			.append('text')
+			.text(([k, v]: [string, unknown]) => `${k} = ${JSON.stringify(v)}`)
+			.attr('y', (_: unknown, i: number) => i * 18)
+			.attr('fill', 'cyan');
+
+		// Stdout section below variables
+		const yStart = 20 + variables.length * 18 + 24;
+		g.append('text').text('Stdout:').attr('font-size', 16).attr('fill', 'white').attr('y', yStart);
+		const outGroup = g.append('g').attr('transform', `translate(0, ${yStart + 8})`);
+		outGroup.selectAll('text')
+			.data(stdoutLines as unknown[])
+			.enter()
+			.append('text')
 			.text((d: unknown) => String(d))
-			.attr('y', (_: unknown, i: number) => 24 + i * 18)
+			.attr('y', (_: unknown, i: number) => i * 18)
 			.attr('fill', 'lime');
-	}, [stdoutLines]);
+	}, [variables, stdoutLines]);
 
 	return (
 		<div className="h-full grid grid-cols-2">
 			<div className="h-full flex flex-col">
-				<div className="p-2 border-b border-slate-800 flex items-center gap-2">
+				<div className="p-2 border-b border-slate-800 flex items-center gap-3">
 					<button className="px-3 py-1 bg-indigo-600 rounded disabled:opacity-50" onClick={onAnalyze} disabled={loading}>
 						{loading ? 'Analyzing…' : 'Analyze'}
 					</button>
+					<label className="flex items-center gap-2 text-slate-300 text-sm">
+						<input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
+						Auto
+					</label>
 					<span className="text-slate-400 text-sm">AI Pseudo Compiler</span>
 				</div>
 				<div className="flex-1">
